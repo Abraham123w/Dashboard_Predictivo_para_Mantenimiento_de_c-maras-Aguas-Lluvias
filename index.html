@@ -96,7 +96,7 @@
         <div id="statusSection" class="bg-white rounded-lg shadow p-4 mb-6 flex justify-between items-center">
             <div class="flex items-center">
                 <div id="loading" class="loader mr-3"></div>
-                <span id="statusText" class="text-gray-700 font-medium">Esperando archivo CSV...</span>
+                <span id="statusText" class="text-gray-700 font-medium">Cargando datos automáticamente...</span>
             </div>
             
             <label class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-full transition shadow-md inline-flex items-center text-sm">
@@ -350,7 +350,36 @@
         // Inicializar
         window.onload = function() {
             initMap();
+            loadDefaultCSV();
         };
+
+        // Cargar automáticamente el CSV al abrir la página
+        function loadDefaultCSV() {
+            const csvPath = './6.prediccion_inteligente_rf.csv';
+
+            statusText.textContent = 'Cargando datos automáticamente...';
+            loader.style.display = 'inline-block';
+
+            fetch(csvPath)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`No se pudo cargar ${csvPath} (HTTP ${response.status})`);
+                    }
+                    return response.text();
+                })
+                .then(csvText => {
+                    parseCSV(csvText);
+                })
+                .catch(error => {
+                    console.error(error);
+                    loader.style.display = 'none';
+                    statusText.innerHTML = `
+                        <span class="text-red-500">
+                            No se pudo cargar automáticamente <b>6.prediccion_inteligente_rf.csv</b>.
+                            Puedes seleccionarlo manualmente con el botón “Cargar Archivo”.
+                        </span>`;
+                });
+        }
 
         // --- NAVEGACIÓN ---
         window.switchView = function(viewName) {
