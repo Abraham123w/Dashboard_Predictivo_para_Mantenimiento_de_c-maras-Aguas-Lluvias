@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de Gestión de Limpieza</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- PapaParse -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+
+    <!-- Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- Iconos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
+
+    <style>
+        #map { height: 500px; width: 100%; z-index: 1; border-radius: 0.5rem; }
+        .card { transition: transform 0.2s; }
+        .card:hover { transform: translateY(-5px); }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            display: none; /* Oculto por defecto */
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Estilo para fila actualizada */
+        .updated-row { background-color: #dcfce7 !important; transition: background-color 1s; }
+
+        /* Estilos Calendario */
+        .calendar-day { min-height: 100px; border: 1px solid #e5e7eb; transition: background-color 0.2s; }
+        .calendar-day:hover { background-color: #f9fafb; }
+        .calendar-event { 
+            font-size: 0.7rem; 
+            padding: 2px 4px; 
+            margin-bottom: 2px; 
+            border-radius: 4px; 
+            white-space: nowrap; 
+            overflow: hidden; 
+            text-overflow: ellipsis; 
+            cursor: pointer;
+        }
+        .nav-btn.active { border-bottom: 2px solid white; opacity: 1; }
+        .nav-btn { opacity: 0.7; transition: opacity 0.2s; }
+        .nav-btn:hover { opacity: 1; }
+        
+        /* Animación suave para cambio de pestañas */
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans">
+
+    <!-- Navbar -->
+    <nav class="bg-blue-900 text-white p-4 shadow-lg sticky top-0 z-50">
+        <div class="container mx-auto flex flex-col md:flex-row justify-between items-center">
+            <h1 class="text-2xl font-bold mb-4 md:mb-0"><i class="fas fa-broom mr-2"></i>Gestión Inteligente</h1>
+            
+            <!-- Navegación de Pestañas -->
+            <div class="flex space-x-6 mb-4 md:mb-0">
+                <button onclick="switchView('dashboard')" id="btn-dashboard" class="nav-btn active font-semibold text-lg pb-1">
+                    <i class="fas fa-chart-line mr-1"></i> Dashboard
+                </button>
+                <button onclick="switchView('calendar')" id="btn-calendar" class="nav-btn font-semibold text-lg pb-1">
+                    <i class="fas fa-calendar-alt mr-1"></i> Calendario
+                </button>
+                <button onclick="switchView('team')" id="btn-team" class="nav-btn font-semibold text-lg pb-1">
+                    <i class="fas fa-users mr-1"></i> Equipo
+                </button>
+            </div>
+
+            <div class="flex items-center space-x-4">
+                <button onclick="downloadUpdatedCSV()" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded shadow transition text-sm">
+                    <i class="fas fa-download mr-2"></i> Guardar CSV
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container mx-auto p-6">
+        
+        <!-- Status Message / Upload -->
+        <div id="statusSection" class="bg-white rounded-lg shadow p-4 mb-6 flex justify-between items-center">
+            <div class="flex items-center">
+                <div id="loading" class="loader mr-3"></div>
+                <span id="statusText" class="text-gray-700 font-medium">Esperando archivo CSV...</span>
+            </div>
+            
+            <label class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-full transition shadow-md inline-flex items-center text-sm">
+                <i class="fas fa-upload mr-2"></i> Cargar Archivo
+                <input type="file" id="csvFile" accept=".csv" class="hidden" />
+            </label>
+        </div>
+
+        <!-- VISTA DASHBOARD -->
+        <div id="dashboardView" class="hidden space-y-8 fade-in">
+            
+            <!-- KPI Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div class="card bg-white p-6 rounded-lg shadow border-l-4 border-blue-500">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <p class="text-gray-500 text-sm uppercase font-bold">Total Sectores</p>
+                            <h3 class="text-3xl font-bold text-gray-800" id="kpiTotal">0</h3>
+                        </div>
+                        <div class="bg-blue-100 p-3 rounded-full text-blue-600"><i class="fas fa-map-marker-alt fa-lg"></i></div>
+                    </div>
+                </div>
+                <div class="card bg-white p-6 rounded-lg shadow border-l-4 border-red-500">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <p class="text-gray-500 text-sm uppercase font-bold">Atrasados</p>
+                            <h3 class="text-3xl font-bold text-red-600" id="kpiCritical">0</h3>
+                        </div>
+                        <div class="bg-red-100 p-3 rounded-full text-red-600"><i class="fas fa-exclamation-triangle fa-lg"></i></div>
+                    </div>
+                </div>
+                <div class="card bg-white p-6 rounded-lg shadow border-l-4 border-yellow-500">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <p class="text-gray-500 text-sm uppercase font-bold">Próxima Semana</p>
+                            <h3 class="text-3xl font-bold text-yellow-600" id="kpiWarning">0</h3>
+                        </div>
+                        <div class="bg-yellow-100 p-3 rounded-full text-yellow-600"><i class="fas fa-clock fa-lg"></i></div>
+                    </div>
+                </div>
+                <div class="card bg-white p-6 rounded-lg shadow border-l-4 border-green-500">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <p class="text-gray-500 text-sm uppercase font-bold">A Tiempo</p>
+                            <h3 class="text-3xl font-bold text-green-600" id="kpiOk">0</h3>
+                        </div>
+                        <div class="bg-green-100 p-3 rounded-full text-green-600"><i class="fas fa-check-circle fa-lg"></i></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Map and Chart Section -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Map -->
+                <div class="lg:col-span-2 bg-white rounded-lg shadow-md overflow-hidden relative">
+                    <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
+                        <h3 class="font-bold text-gray-700"><i class="fas fa-globe-americas mr-2"></i>Mapa de Estado</h3>
+                        <div class="text-xs space-x-2">
+                            <span class="inline-block w-3 h-3 rounded-full bg-red-500"></span> Atrasado
+                            <span class="inline-block w-3 h-3 rounded-full bg-yellow-400"></span> Próximo
+                            <span class="inline-block w-3 h-3 rounded-full bg-green-500"></span> Al día
+                        </div>
+                    </div>
+                    <div id="map"></div>
+                </div>
+
+                <!-- Chart -->
+                <div class="bg-white rounded-lg shadow-md p-4">
+                    <h3 class="font-bold text-gray-700 mb-4 border-b pb-2">Distribución de Estado</h3>
+                    <div class="relative h-64 w-full">
+                        <canvas id="statusChart"></canvas>
+                    </div>
+                    <div class="mt-6">
+                        <h4 class="text-sm font-semibold text-gray-600 mb-2">Resumen:</h4>
+                        <ul class="text-sm text-gray-600 space-y-2" id="actionList"></ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Data Table -->
+            <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
+                    <h3 class="font-bold text-gray-700"><i class="fas fa-list-check mr-2"></i>Listado de Prioridades y Checklist</h3>
+                    <span class="text-xs text-gray-500">* Marca la casilla para registrar limpieza realizada</span>
+                </div>
+                <div class="overflow-x-auto max-h-[600px]">
+                    <table class="min-w-full leading-normal relative">
+                        <thead class="sticky top-0 z-10">
+                            <tr>
+                                <th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Acción</th>
+                                <th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Microsector</th>
+                                <th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Intervalo Est.</th>
+                                <th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Fecha Ideal</th>
+                                <th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Días Rest.</th>
+                                <th class="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody">
+                            <!-- Rows generated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- VISTA CALENDARIO -->
+        <div id="calendarView" class="hidden bg-white rounded-lg shadow-md p-6 fade-in">
+            <div class="flex justify-between items-center mb-6">
+                <button onclick="changeMonth(-1)" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-full"><i class="fas fa-chevron-left"></i> Anterior</button>
+                <h2 id="calendarTitle" class="text-2xl font-bold text-blue-900 capitalize">Mes Año</h2>
+                <button onclick="changeMonth(1)" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-full">Siguiente <i class="fas fa-chevron-right"></i></button>
+            </div>
+
+            <!-- Días de la semana -->
+            <div class="grid grid-cols-7 gap-2 mb-2 text-center text-gray-500 font-bold uppercase text-xs">
+                <div>Domingo</div>
+                <div>Lunes</div>
+                <div>Martes</div>
+                <div>Miércoles</div>
+                <div>Jueves</div>
+                <div>Viernes</div>
+                <div>Sábado</div>
+            </div>
+
+            <!-- Grid del Calendario -->
+            <div id="calendarGrid" class="grid grid-cols-7 gap-2 border-t border-l border-gray-200 bg-gray-200">
+                <!-- Se rellena con JS -->
+            </div>
+        </div>
+
+        <!-- VISTA EQUIPO -->
+        <div id="teamView" class="hidden bg-white rounded-lg shadow-md p-8 fade-in">
+            
+            <!-- Logos Institucionales -->
+            <div class="flex flex-col md:flex-row justify-center items-center gap-12 mb-12 border-b pb-8">
+                <div class="text-center group">
+                    <div class="w-64 h-32 bg-gray-50 rounded-lg flex items-center justify-center mb-2 overflow-hidden shadow-sm border border-gray-100">
+                        <img src="https://www.ufro.cl/wp-content/uploads/2025/03/03-logo-UFRO-azul-uso-publicitario.jpg" alt="Logo Universidad de la Frontera" class="object-contain h-full w-full opacity-70 group-hover:opacity-100 transition">
+                    </div>
+                    <p class="text-sm text-gray-500 font-semibold">Universidad de La Frontera</p>
+                </div>
+                
+                <div class="h-16 w-px bg-gray-300 hidden md:block"></div>
+
+                <div class="text-center group">
+                    <div class="w-64 h-32 bg-gray-50 rounded-lg flex items-center justify-center mb-2 overflow-hidden shadow-sm border border-gray-100">
+                        <img src="https://media.licdn.com/dms/image/v2/D4E0BAQEEnS6aKhok3A/company-logo_200_200/B4EZkQZ0NHGUAI-/0/1756916828188/temuco_lab_logo?e=1766016000&v=beta&t=arOysXHaEhobGfKkPcl7fVWSo-DEC2HA_zuAchbmlZs" alt="Logo Temuco Lab" class="object-contain h-full w-full opacity-70 group-hover:opacity-100 transition">
+                    </div>
+                    <p class="text-sm text-gray-500 font-semibold">Temuco Lab</p>
+                </div>
+            </div>
+
+            <div class="text-center mb-12">
+                <h2 class="text-3xl font-bold text-blue-900">Nuestro Equipo</h2>
+                <p class="text-gray-500 mt-2">Articulación entre academia y comunidad para una gestión eficiente</p>
+            </div>
+
+            <!-- Sección Líderes -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto mb-16">
+                <!-- Profesor -->
+                <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-blue-600 text-center transform hover:-translate-y-1 transition duration-300">
+                    <div class="w-32 h-32 mx-auto rounded-full overflow-hidden border-4 border-blue-100 mb-4 shadow-md">
+                        <img src="https://fisicamedica.ufro.cl/wp-content/uploads/2020/10/IMG_0883-1024x683.jpg" alt="Profesor" class="w-full h-full object-cover">
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-800">Galo Paiva Cravero</h3>
+                    <p class="text-blue-600 font-semibold">Profesor Guía</p>
+                    <p class="text-gray-500 text-sm mt-2">Departamento de Ingeniería Industrial y de Sistemas</p>
+                </div>
+
+                <!-- Socio Temuco Lab -->
+                <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-600 text-center transform hover:-translate-y-1 transition duration-300">
+                    <div class="w-32 h-32 mx-auto rounded-full overflow-hidden border-4 border-indigo-100 mb-4 shadow-md">
+                        <img src="https://media.licdn.com/dms/image/v2/D4E03AQFTMYlf8UFJtA/profile-displayphoto-shrink_400_400/B4EZOjGPcyHsAg-/0/1733608143217?e=1766016000&v=beta&t=jh-TdpvVXd_Z2YO9cuPV-cHLdrR-1Do_t6VqohtQg6c" alt="Socio Temuco Lab" class="w-full h-full object-cover">
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-800">Ruben Castro</h3>
+                    <p class="text-indigo-600 font-semibold">Socio Estratégico</p>
+                    <p class="text-gray-500 text-sm mt-2">Temuco Lab</p>
+                </div>
+            </div>
+
+            <!-- Sección Estudiantes -->
+            <div class="text-center mb-8">
+                <h3 class="text-xl font-bold text-gray-700">Equipo de Desarrollo</h3>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto mb-16">
+                <!-- Estudiante 1 -->
+                <div class="bg-gray-50 p-6 rounded-xl text-center hover:bg-white hover:shadow-md transition duration-300">
+                    <div class="w-24 h-24 mx-auto rounded-full overflow-hidden mb-4 shadow-sm grayscale hover:grayscale-0 transition">
+                        <img src="https://media.licdn.com/dms/image/v2/D4E03AQGjDHqedhVW6A/profile-displayphoto-scale_400_400/B4EZjzVI4cGwAk-/0/1756429062242?e=1766016000&v=beta&t=5FoMIpg4dGzGiqShru0UUrPzvr_ve8QBejtSVK6d160" alt="Estudiante 1" class="w-full h-full object-cover">
+                    </div>
+                    <h4 class="font-bold text-gray-800">Abraham Castro Copa</h4>
+                    <p class="text-gray-500 text-sm">Estudiante de Ingeniería Civil Industrial con mención en Informática.</p>
+                </div>
+
+                <!-- Estudiante 2 -->
+                <div class="bg-gray-50 p-6 rounded-xl text-center hover:bg-white hover:shadow-md transition duration-300">
+                    <div class="w-24 h-24 mx-auto rounded-full overflow-hidden mb-4 shadow-sm grayscale hover:grayscale-0 transition">
+                        <img src="https://media.licdn.com/dms/image/v2/D4E03AQGmipLB61_kHw/profile-displayphoto-scale_400_400/B4EZra0n76KoAg-/0/1764607820126?e=1766016000&v=beta&t=PrSPdA0CxjRd5M3RPZNZSyNltsmHzs3PqIPo_LgiVGM" alt="Estudiante 2" class="w-full h-full object-cover">
+                    </div>
+                    <h4 class="font-bold text-gray-800">Vicente Chávez Lizama</h4>
+                    <p class="text-gray-500 text-sm">Estudiante de Ingeniería Civil Ambiental.</p>
+                </div>
+
+                <!-- Estudiante 3 -->
+                <div class="bg-gray-50 p-6 rounded-xl text-center hover:bg-white hover:shadow-md transition duration-300">
+                    <div class="w-24 h-24 mx-auto rounded-full overflow-hidden mb-4 shadow-sm grayscale hover:grayscale-0 transition">
+                        <img src="alex.jpg" alt="Estudiante 3" class="w-full h-full object-cover">
+                    </div>
+                    <h4 class="font-bold text-gray-800">Alex Sánchez Carrillo </h4>
+                    <p class="text-gray-500 text-sm">Estudiante de Ingeniería Civil Industrial con mención en Informática</p>
+                </div>
+            </div>
+
+            <!-- FOTO GRUPAL (AGREGADA AQUI) -->
+            <div class="mt-16 bg-blue-50 rounded-2xl p-8 text-center border border-blue-100 shadow-sm">
+                <h3 class="text-2xl font-bold text-blue-900 mb-6">Nuestro Equipo en Terreno</h3>
+                <div class="max-w-4xl mx-auto rounded-xl overflow-hidden shadow-lg transform hover:scale-[1.01] transition duration-500">
+                    <!-- CAMBIAR AQUI: Foto Grupal Visita Terreno -->
+                    <img src="https://media.licdn.com/dms/image/v2/D4E22AQGqvQ4_fWh0Vw/feedshare-shrink_2048_1536/B4EZmG.xShIMAw-/0/1758906226718?e=1766016000&v=beta&t=tfj6EzmbQYrBUTPPCtY0PBzSJsG1QIVKrlBRsCfPi0E" alt="Equipo en visita a terreno" class="w-full h-auto object-cover">
+                </div>
+                <p class="text-gray-600 mt-4 italic">Aprendiendo sobre el proceso de limpieza in-situ para mejorar nuestro modelo.</p>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        // Variables globales
+        let map;
+        let markersLayer;
+        let myChart;
+        let globalData = [];
+        
+        // Variables Calendario
+        let currentCalendarDate = new Date();
+
+        // Elementos DOM
+        const statusText = document.getElementById('statusText');
+        const loader = document.getElementById('loading');
+        const dashboardView = document.getElementById('dashboardView');
+        const calendarView = document.getElementById('calendarView');
+        const teamView = document.getElementById('teamView');
+        
+        const btnDashboard = document.getElementById('btn-dashboard');
+        const btnCalendar = document.getElementById('btn-calendar');
+        const btnTeam = document.getElementById('btn-team');
+
+        // Inicializar
+        window.onload = function() {
+            initMap();
+        };
+
+        // --- NAVEGACIÓN ---
+        window.switchView = function(viewName) {
+            // Ocultar todo
+            dashboardView.classList.add('hidden');
+            calendarView.classList.add('hidden');
+            teamView.classList.add('hidden');
+            
+            // Desactivar botones
+            btnDashboard.classList.remove('active');
+            btnCalendar.classList.remove('active');
+            btnTeam.classList.remove('active');
+
+            // Activar selección
+            if (viewName === 'dashboard') {
+                dashboardView.classList.remove('hidden');
+                btnDashboard.classList.add('active');
+                if (map) setTimeout(() => map.invalidateSize(), 200);
+            } else if (viewName === 'calendar') {
+                calendarView.classList.remove('hidden');
+                btnCalendar.classList.add('active');
+                renderCalendar();
+            } else if (viewName === 'team') {
+                teamView.classList.remove('hidden');
+                btnTeam.classList.add('active');
+            }
+        };
+
+        function initMap() {
+            if(map) return;
+            map = L.map('map').setView([-38.73, -72.59], 12);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+            markersLayer = L.layerGroup().addTo(map);
+        }
+
+        // --- CORRECCIÓN DATOS ---
+        function fixEncoding(str) {
+            str = String(str);
+            if (!str || str === "undefined" || str === "null") return "";
+            
+            let fixed = str
+                .replace(/ðŸŸ¢/g, '').replace(/ðŸ”´/g, '').replace(/ðŸŸ¡/g, '')
+                .replace(/🟢/g, '').replace(/🔴/g, '').replace(/🟡/g, '')
+                .replace(/Ã¡/g, 'á').replace(/Ã©/g, 'é').replace(/Ã­/g, 'í').replace(/Ã³/g, 'ó').replace(/Ãº/g, 'ú').replace(/Ã±/g, 'ñ')
+                .replace(/Ã/g, 'Á').replace(/Ã‰/g, 'É').replace(/Ã/g, 'Í').replace(/Ã“/g, 'Ó').replace(/Ãš/g, 'Ú').replace(/Ã‘/g, 'Ñ');
+            
+            if (fixed.includes("A tiempo")) fixed = "A tiempo";
+            if (fixed.includes("Atrasado")) fixed = "Atrasado (Prioridad Alta)";
+            if (fixed.includes("Próximo")) fixed = "Próximo (Semana entrante)";
+            
+            return fixed.trim();
+        }
+
+        // --- CARGA DATOS ---
+        document.getElementById('csvFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            statusText.textContent = `Analizando: ${file.name}...`;
+            loader.style.display = 'inline-block';
+            
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                dynamicTyping: true,
+                encoding: "UTF-8", 
+                complete: function(results) {
+                    processResults(results);
+                }
+            });
+        });
+
+        function parseCSV(csvText) {
+            Papa.parse(csvText, {
+                header: true,
+                skipEmptyLines: true,
+                dynamicTyping: true,
+                complete: function(results) {
+                    processResults(results);
+                }
+            });
+        }
+
+        function processResults(results) {
+            loader.style.display = 'none';
+            if (results.data && results.data.length > 0) {
+                try {
+                    globalData = results.data
+                        .filter(row => row.Ubicación_Microsector)
+                        .map(row => {
+                            if(row.Estado_IA) row.Estado_IA = fixEncoding(row.Estado_IA);
+                            if(row.Ubicación_Microsector) row.Ubicación_Microsector = fixEncoding(row.Ubicación_Microsector);
+                            
+                            // Cálculo dinámico días restantes
+                            if (row.Fecha_Proxima_Predicha) {
+                                const fechaPredicha = parseDateStr(row.Fecha_Proxima_Predicha);
+                                if (fechaPredicha) {
+                                    const hoy = new Date();
+                                    hoy.setHours(0, 0, 0, 0);
+                                    fechaPredicha.setHours(0, 0, 0, 0);
+                                    const diffTime = fechaPredicha - hoy;
+                                    row.Dias_Restantes_Prediccion = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                }
+                            }
+                            return {...row, _done: false};
+                        });
+
+                    // Ordenar
+                    globalData.sort((a, b) => {
+                        const valA = (typeof a.Dias_Restantes_Prediccion === 'number') ? a.Dias_Restantes_Prediccion : 9999;
+                        const valB = (typeof b.Dias_Restantes_Prediccion === 'number') ? b.Dias_Restantes_Prediccion : 9999;
+                        return valA - valB;
+                    });
+
+                    statusText.innerHTML = `<span class="text-green-600"><i class="fas fa-check"></i> Datos cargados.</span>`;
+                    
+                    // Mostrar Dashboard por defecto
+                    switchView('dashboard');
+                    renderDashboard(); 
+
+                } catch (e) {
+                    console.error(e);
+                    statusText.innerHTML = `<span class="text-red-500">Error: ${e.message}</span>`;
+                }
+            } else {
+                statusText.textContent = "El archivo está vacío.";
+            }
+        }
+
+        // --- CHECKLIST ---
+        window.markAsDone = function(index) {
+            const row = globalData[index];
+            const checkbox = document.getElementById(`check-${index}`);
+            
+            if (checkbox.checked) {
+                let intervalo = parseFloat(row.Intervalo_Estimado_Modelo);
+                if (!isNaN(intervalo)) {
+                    let nuevaFecha = new Date(); 
+                    nuevaFecha.setDate(nuevaFecha.getDate() + intervalo); 
+
+                    row.Fecha_Proxima_Predicha = formatDateStr(nuevaFecha);
+                    row.Estado_IA = "A tiempo (Actualizado)";
+                    row.Dias_Restantes_Prediccion = Math.round(intervalo);
+                    row._done = true; 
+                    
+                    renderDashboard(); // Actualiza tabla
+                    // Si estamos en calendario, no se actualiza auto para no saltar de vista
+                } else {
+                    alert("Error en intervalo.");
+                    checkbox.checked = false;
+                }
+            }
+        };
+
+        // --- RENDERIZADO DASHBOARD ---
+        function renderDashboard() {
+            let stats = { total: globalData.length, critical: 0, warning: 0, ok: 0 };
+            markersLayer.clearLayers();
+            const tableBody = document.getElementById('tableBody');
+            tableBody.innerHTML = '';
+            let bounds = [];
+
+            globalData.forEach((row, index) => {
+                const estadoRaw = row.Estado_IA || "";
+                let color = "gray";
+                let statusClass = "bg-gray-200 text-gray-800";
+
+                if (estadoRaw.includes("Atrasado")) {
+                    stats.critical++;
+                    color = "#ef4444"; statusClass = "bg-red-100 text-red-800";
+                } else if (estadoRaw.includes("Próximo")) {
+                    stats.warning++;
+                    color = "#eab308"; statusClass = "bg-yellow-100 text-yellow-800";
+                } else {
+                    stats.ok++;
+                    color = "#22c55e"; statusClass = "bg-green-100 text-green-800";
+                }
+
+                // Mapa
+                const lat = parseFloat(String(row['Coordenada Y']).replace(',', '.'));
+                const lng = parseFloat(String(row['Coordenada X']).replace(',', '.'));
+
+                if (!isNaN(lat) && !isNaN(lng)) {
+                    const marker = L.circleMarker([lat, lng], {
+                        radius: 8, fillColor: color, color: "#fff", weight: 1, opacity: 1, fillOpacity: 0.8
+                    });
+                    marker.bindPopup(`<b>${row.Ubicación_Microsector}</b><br>${estadoRaw}<br>Días: ${row.Dias_Restantes_Prediccion}`);
+                    markersLayer.addLayer(marker);
+                    bounds.push([lat, lng]);
+                }
+
+                // Tabla (Top 300)
+                if (index < 300) {
+                    const tr = document.createElement('tr');
+                    tr.className = row._done ? "updated-row" : "hover:bg-gray-50";
+                    const isChecked = row._done ? "checked disabled" : "";
+                    tr.innerHTML = `
+                        <td class="px-5 py-2 border-b border-gray-200 text-center">
+                            <input type="checkbox" id="check-${index}" class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer" 
+                            onchange="markAsDone(${index})" ${isChecked}>
+                        </td>
+                        <td class="px-5 py-2 border-b border-gray-200 text-sm font-bold text-gray-900">${row.Ubicación_Microsector}</td>
+                        <td class="px-5 py-2 border-b border-gray-200 text-sm text-center">${row.Intervalo_Estimado_Modelo}</td>
+                        <td class="px-5 py-2 border-b border-gray-200 text-sm">${row.Fecha_Proxima_Predicha}</td>
+                        <td class="px-5 py-2 border-b border-gray-200 text-sm font-bold text-center">${row.Dias_Restantes_Prediccion}</td>
+                        <td class="px-5 py-2 border-b border-gray-200 text-sm"><span class="relative inline-block px-3 py-1 font-semibold leading-tight rounded-full ${statusClass} text-xs">${estadoRaw.replace(/[^a-zA-Z\s\(\)]/g, '').substring(0,30)}</span></td>
+                    `;
+                    tableBody.appendChild(tr);
+                }
+            });
+
+            // KPIs & Chart
+            document.getElementById('kpiTotal').innerText = stats.total;
+            document.getElementById('kpiCritical').innerText = stats.critical;
+            document.getElementById('kpiWarning').innerText = stats.warning;
+            document.getElementById('kpiOk').innerText = stats.ok;
+            
+            if (bounds.length > 0 && map) {
+                map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+            }
+            updateChart(stats);
+            
+            document.getElementById('actionList').innerHTML = `
+                <li><i class="fas fa-check text-green-500"></i> Eficiencia global: <b>${Math.round((stats.ok/stats.total)*100)}%</b></li>
+                <li><i class="fas fa-exclamation text-red-500"></i> Críticos restantes: <b>${stats.critical}</b></li>
+            `;
+        }
+
+        // --- RENDERIZADO CALENDARIO ---
+        window.changeMonth = function(offset) {
+            currentCalendarDate.setMonth(currentCalendarDate.getMonth() + offset);
+            renderCalendar();
+        };
+
+        function renderCalendar() {
+            const grid = document.getElementById('calendarGrid');
+            const title = document.getElementById('calendarTitle');
+            grid.innerHTML = '';
+
+            const year = currentCalendarDate.getFullYear();
+            const month = currentCalendarDate.getMonth();
+            
+            // Nombre del mes
+            const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+            title.textContent = `${monthNames[month]} ${year}`;
+
+            // Calcular días
+            const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0 = Domingo
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+            // Relleno previo (días vacíos hasta el primer día)
+            // Ajustamos relleno (si firstDay es 0/Domingo, queremos que sea el 7o slot en layout Lunes-Dom o Dom-Sab?)
+            // Layout actual headers: Dom, Lun, Mar... (Standard US/JS getDay)
+            for (let i = 0; i < firstDayOfMonth; i++) {
+                const emptyCell = document.createElement('div');
+                emptyCell.className = "bg-gray-100 min-h-[100px]";
+                grid.appendChild(emptyCell);
+            }
+
+            // Días reales
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateStr = `${String(day).padStart(2, '0')}-${String(month + 1).padStart(2, '0')}-${year}`;
+                const cell = document.createElement('div');
+                cell.className = "calendar-day bg-white p-2 flex flex-col";
+                
+                // Número del día
+                const dayNum = document.createElement('span');
+                dayNum.className = "font-bold text-gray-700 text-sm mb-1";
+                dayNum.textContent = day;
+                cell.appendChild(dayNum);
+
+                // Buscar eventos para este día
+                const events = globalData.filter(row => row.Fecha_Proxima_Predicha === dateStr);
+                
+                // Renderizar eventos (Max 3 visible, luego +X)
+                events.slice(0, 4).forEach(evt => {
+                    const div = document.createElement('div');
+                    let bgClass = "bg-green-100 text-green-800";
+                    if(evt.Estado_IA.includes("Atrasado")) bgClass = "bg-red-100 text-red-800 font-bold";
+                    else if(evt.Estado_IA.includes("Próximo")) bgClass = "bg-yellow-100 text-yellow-800";
+                    
+                    div.className = `calendar-event ${bgClass}`;
+                    div.textContent = evt.Ubicación_Microsector;
+                    div.title = `${evt.Ubicación_Microsector} (${evt.Estado_IA})`;
+                    cell.appendChild(div);
+                });
+
+                if(events.length > 4) {
+                    const more = document.createElement('div');
+                    more.className = "text-xs text-gray-500 font-semibold mt-1 cursor-pointer";
+                    more.textContent = `+ ${events.length - 4} más...`;
+                    cell.appendChild(more);
+                }
+
+                grid.appendChild(cell);
+            }
+        }
+
+        function updateChart(stats) {
+            const ctx = document.getElementById('statusChart').getContext('2d');
+            if (myChart) myChart.destroy();
+            myChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Atrasado', 'Próximo', 'A Tiempo'],
+                    datasets: [{
+                        data: [stats.critical, stats.warning, stats.ok],
+                        backgroundColor: ['#ef4444', '#eab308', '#22c55e'],
+                        borderWidth: 0
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+            });
+        }
+
+        window.downloadUpdatedCSV = function() {
+            const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+            const dataToExport = globalData.map(row => {
+                const newRow = { ...row };
+                delete newRow._done; 
+                if (newRow.Fecha_Proxima_Predicha) {
+                    const fechaPredicha = parseDateStr(newRow.Fecha_Proxima_Predicha);
+                    if (fechaPredicha) {
+                        fechaPredicha.setHours(0, 0, 0, 0);
+                        const diffTime = fechaPredicha - hoy;
+                        newRow.Dias_Restantes_Prediccion = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    }
+                }
+                return newRow;
+            });
+            const csv = Papa.unparse(dataToExport, { quotes: false, delimiter: ";" });
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", "6.prediccion_actualizada.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        };
+
+        function parseDateStr(str) {
+            if (!str) return null;
+            const parts = str.split('-'); 
+            if (parts.length !== 3) return null;
+            return new Date(parts[2], parts[1] - 1, parts[0]);
+        }
+        function formatDateStr(date) {
+            const d = String(date.getDate()).padStart(2, '0');
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const y = date.getFullYear();
+            return `${d}-${m}-${y}`;
+        }
+    </script>
+</body>
+</html>
